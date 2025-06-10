@@ -1,0 +1,140 @@
+import os
+import threading
+import zipfile
+import gzip
+import shutil
+from queue import Queue
+
+class Compressor:
+    def __init__(self, num_threads=4):
+        self.num_threads = num_threads
+
+    # Compress multiple files into individual .gz files using multithreading
+    def compress_files_gzip(self, files):
+        def worker():
+            while True:
+                file = q.get()
+                if file is None:
+                    break
+                self._compress_gzip(file)
+                q.task_done()
+
+        q = Queue()
+        for file in files:
+            q.put(file)
+
+        threads = []
+        for _ in range(self.num_threads):
+            t = threading.Thread(target=worker)
+            t.start()
+            threads.append(t)
+
+        q.join()
+        for _ in range(self.num_threads):
+            q.put(None)
+        for t in threads:
+            t.join()
+
+    def _compress_gzip(self, file):
+        with open(file, 'rb') as f_in:
+            with gzip.open(file + '.gz', 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+        print(f"Compressed {file} to {file}.gz")
+
+    # Decompress multiple .gz files using multithreading
+    def decompress_files_gzip(self, files):
+        def worker():
+            while True:
+                file = q.get()
+                if file is None:
+                    break
+                self._decompress_gzip(file)
+                q.task_done()
+
+        q = Queue()
+        for file in files:
+            q.put(file)
+
+        threads = []
+        for _ in range(self.num_threads):
+            t = threading.Thread(target=worker)
+            t.start()
+            threads.append(t)
+
+        q.join()
+        for _ in range(self.num_threads):
+            q.put(None)
+        for t in threads:
+            t.join()
+
+    def _decompress_gzip(self, file):
+        output_file = file.replace('.gz', '')
+        with gzip.open(file, 'rb') as f_in:
+            with open(output_file, 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+        print(f"Decompressed {file} to {output_file}")
+
+    # Compress a directory into a ZIP file using multithreading (file-level parallelism)
+    def compress_directory_zip(self, directory, zip_name):
+        with zipfile.ZipFile(zip_name, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            files = []
+            for root, _, filenames in os.walk(directory):
+                for filename in filenames:
+                    files.append(os.path.join(root, filename))
+
+            def worker():
+                while True:
+                    file = q.get()
+                    if file is None:
+                        break
+                    arcname = os.path.relpath(file, directory)
+                    zipf.write(file, arcname=arcname)
+                    q.task_done()
+
+            q = Queue()
+            for file in files:
+                q.put(file)
+
+            threads = []
+            for _ in range(self.num_threads):
+                t = threading.Thread(target=worker)
+                t.start()
+                threads.append(t)
+
+            q.join()
+            for _ in range(self.num_threads):
+                q.put(None)
+            for t in threads:
+                t.join()
+        print(f"Compressed directory {directory} into {zip_name}")
+
+    # Decompress a ZIP file
+    def decompress_zip(self, zip_name, extract_dir):
+        with zipfile.ZipFile(zip_name, 'r') as zipf:
+            zipf.extractall(extract_dir)
+        print(f"Extracted {zip_name} to {extract_dir}")
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Multithreaded File Compressor/Decompressor")
+    parser.add_argument('--compress-gz', nargs='+', help="Compress files to .gz")
+    parser.add_argument('--decompress-gz', nargs='+', help="Decompress .gz files")
+    parser.add_argument('--compress-zip', nargs=2, metavar=('DIR', 'ZIP'), help="Compress directory to ZIP")
+    parser.add_argument('--decompress-zip', nargs=2, metavar=('ZIP', 'DIR'), help="Decompress ZIP to directory")
+    parser.add_argument('--threads', type=int, default=4, help="Number of threads to use")
+    args = parser.parse_args()
+
+    compressor = Compressor(num_threads=args.threads)
+
+    if args.compress_gz:
+        compressor.compress_files_gzip(args.compress_gz)
+    if args.decompress_gz:
+        compressor.decompress_files_gzip(args.decompress_gz)
+    if args.compress_zip:
+        directory, zip_name = args.compress_zip
+        compressor.compress_directory_zip(directory, zip_name)
+    if args.decompress_zip:
+        zip_name, extract_dir = args.decompress_zip
+        compressor.decompress_zip(zip_name, extract_dir)
