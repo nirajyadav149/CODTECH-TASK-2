@@ -1,0 +1,50 @@
+#include <iostream>
+#include <vector>
+#include <chrono>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
+// Baseline: Single-threaded sum
+long long sum_baseline(const std::vector<int>& data) {
+    long long sum = 0;
+    for (size_t i = 0; i < data.size(); ++i) {
+        sum += data[i];
+    }
+    return sum;
+}
+
+// Optimized: Parallel sum using OpenMP
+long long sum_optimized(const std::vector<int>& data) {
+    long long sum = 0;
+    #pragma omp parallel for reduction(+:sum)
+    for (long long i = 0; i < static_cast<long long>(data.size()); ++i) {
+        sum += data[i];
+    }
+    return sum;
+}
+
+int main() {
+    const size_t N = 500'000'000; // Large array
+    std::vector<int> data(N, 1);
+
+    // Baseline
+    auto start = std::chrono::high_resolution_clock::now();
+    long long result1 = sum_baseline(data);
+    auto end = std::chrono::high_resolution_clock::now();
+    double time_baseline = std::chrono::duration<double>(end - start).count();
+
+    // Optimized
+    start = std::chrono::high_resolution_clock::now();
+    long long result2 = sum_optimized(data);
+    end = std::chrono::high_resolution_clock::now();
+    double time_optimized = std::chrono::duration<double>(end - start).count();
+
+    // Output
+    std::cout << "Baseline sum result:   " << result1 << "\n";
+    std::cout << "Optimized sum result:  " << result2 << "\n";
+    std::cout << "Baseline time (s):     " << time_baseline << "\n";
+    std::cout << "Optimized time (s):    " << time_optimized << "\n";
+    std::cout << "Speedup:               " << (time_baseline / time_optimized) << "x\n";
+    return 0;
+}
